@@ -33,12 +33,18 @@ const { sanitize } = require('./lib/backup/sanitize');
 
 const args = process.argv.slice(2);
 if (args.length < 2) {
-  console.error('Usage: node export-v1.js <v1-config.yml> <output-dir>');
+  console.error('Usage: node export-v1.js <v1-config.yml> <output-dir> [--register-dir <path>]');
   process.exit(1);
 }
 
 const configPath = path.resolve(args[0]);
 const outputDir = path.resolve(args[1]);
+let registerDir = null;
+for (let i = 2; i < args.length; i++) {
+  if (args[i] === '--register-dir' && args[i + 1]) {
+    registerDir = path.resolve(args[++i]);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Config parsing
@@ -77,15 +83,86 @@ function getUserDirPath (basePath, userId) {
 }
 
 // ---------------------------------------------------------------------------
+// Register data (for username resolution in enterprise setups)
+// ---------------------------------------------------------------------------
+
+/**
+ * Load register users.jsonl.gz to build userId→username map.
+ * Register data contains { id, username, email, ... } per user.
+ */
+function loadRegisterUsernames (regDir) {
+  const zlib = require('zlib');
+  const usersFile = path.join(regDir, 'users.jsonl.gz');
+  if (!fs.existsSync(usersFile)) {
+    const plain = path.join(regDir, 'users.jsonl');
+    if (!fs.existsSync(plain)) return null;
+    const content = fs.readFileSync(plain, 'utf8');
+    return parseRegisterUsers(content);
+  }
+  const content = zlib.gunzipSync(fs.readFileSync(usersFile)).toString('utf8');
+  return parseRegisterUsers(content);
+}
+
+function parseRegisterUsers (content) {
+  const map = {}; // userId → username
+  for (const line of content.trim().split('\n')) {
+    if (!line) continue;
+    const obj = JSON.parse(line);
+    // Skip entries with invalid/missing userId (e.g. id="0", legacy data)
+    if (obj.id && obj.username && obj.id.length > 3) {
+      map[obj.id] = obj.username;
+    }
+  }
+  return Object.keys(map).length > 0 ? map : null;
+}
+
+// ---------------------------------------------------------------------------
 // User enumeration
 // ---------------------------------------------------------------------------
 
 async function getAllUsers (config, db) {
   if (config.storageUserIndex === 'mongodb') {
-    return getAllUsersMongo(db);
-  } else {
-    return getAllUsersSQLite(config.userFilesPath);
+    const users = await getAllUsersMongo(db);
+    if (Object.keys(users).length > 0) return users;
+    // Fallback: id4name collection empty, try SQLite
+    console.log('  (id4name collection empty, falling back to SQLite)');
   }
+
+  // Try SQLite user-index.db
+  const sqliteUsers = getAllUsersSQLite(config.userFilesPath);
+  if (sqliteUsers) return sqliteUsers;
+
+  // Try register data (if --register-dir provided or register/ exists in output)
+  const regMap = tryLoadRegisterMap();
+  if (regMap) {
+    console.log(`  (using register data for user enumeration: ${Object.keys(regMap).length} users)`);
+    return regMap;
+  }
+
+  // Last resort: enumerate from distinct userId in events collection
+  console.log('  (no user index found, enumerating from MongoDB events.distinct("userId"))');
+  return getAllUsersFallback(db);
+}
+
+/**
+ * Try to load register data for username resolution.
+ * Checks --register-dir, then outputDir/register/.
+ */
+function tryLoadRegisterMap () {
+  const dirs = [registerDir, path.join(outputDir, 'register')].filter(Boolean);
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) continue;
+    const idToName = loadRegisterUsernames(dir);
+    if (idToName) {
+      // Convert to {username: userId} format
+      const users = {};
+      for (const [userId, username] of Object.entries(idToName)) {
+        users[username] = userId;
+      }
+      return users;
+    }
+  }
+  return null;
 }
 
 async function getAllUsersMongo (db) {
@@ -100,16 +177,53 @@ async function getAllUsersMongo (db) {
 
 function getAllUsersSQLite (basePath) {
   const dbPath = path.join(basePath, 'user-index.db');
-  if (!fs.existsSync(dbPath)) {
-    throw new Error('SQLite user-index.db not found at ' + dbPath);
-  }
+  if (!fs.existsSync(dbPath)) return null;
   const sqlDb = new SQLite3(dbPath, { readonly: true });
-  const rows = sqlDb.prepare('SELECT username, userId FROM id4name').all();
+  let rows;
+  try {
+    rows = sqlDb.prepare('SELECT username, userId FROM id4name').all();
+  } catch (e) {
+    sqlDb.close();
+    return null;
+  }
   sqlDb.close();
+  if (rows.length === 0) return null;
   const users = {};
   for (const row of rows) {
     users[row.username] = row.userId;
   }
+  return users;
+}
+
+/**
+ * Fallback: enumerate users from distinct userId values in events/accesses.
+ * If register data available, resolves real usernames; otherwise uses userId.
+ */
+async function getAllUsersFallback (db) {
+  const userIds = await db.collection('events').distinct('userId');
+  // Also check accesses for users with no events
+  const accessUserIds = await db.collection('accesses').distinct('userId');
+  const allIds = new Set([...userIds, ...accessUserIds]);
+
+  // Try to resolve usernames from register data
+  let idToName = null;
+  const dirs = [registerDir, path.join(outputDir, 'register')].filter(Boolean);
+  for (const dir of dirs) {
+    if (fs.existsSync(dir)) {
+      idToName = loadRegisterUsernames(dir);
+      if (idToName) break;
+    }
+  }
+
+  const users = {};
+  let resolved = 0;
+  for (const userId of allIds) {
+    if (!userId) continue;
+    const username = idToName?.[userId] || userId;
+    if (username !== userId) resolved++;
+    users[username] = userId;
+  }
+  console.log(`  (found ${Object.keys(users).length} users via fallback, ${resolved} usernames resolved from register)`);
   return users;
 }
 

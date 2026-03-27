@@ -65,6 +65,33 @@ The script auto-detects MongoDB port, `var-pryv` path, and v1 config location. O
 --account ENGINE      Account storage engine: mongodb|sqlite (default: sqlite)
 --v1-config PATH      Path to v1 api.yml config
 --no-compress         Disable gzip compression
+--redis-host HOST     Redis host for register export (default: 127.0.0.1)
+--redis-port PORT     Redis port (default: auto-detect from Docker)
+--redis-password PASS Redis password
+--skip-register       Skip register export
+```
+
+### Export Service-Register (Enterprise)
+
+For enterprise multi-core deployments, export the service-register's Redis data:
+
+```bash
+node export-register.js <output-dir> [--redis-host HOST] [--redis-port PORT] [--redis-password PASS]
+```
+
+This exports:
+- User profiles (username, email, language, registration timestamp)
+- Server/core mappings (username → core FQDN)
+- Email indexes
+- Invitation tokens
+
+When register data is exported first, the core exporter (`export-v1.js`) automatically uses it to resolve usernames — important for enterprise setups where the core's `user-index.db` may not be accessible.
+
+```bash
+# Recommended order for enterprise:
+node export-register.js /backup --redis-host ...     # 1. Register first
+node export-v1.js config.yml /backup                  # 2. Core exporter uses register data
+node convert-config.js api.yml /backup/v2-config.yml  # 3. Config converter
 ```
 
 ### Restore into v2
@@ -101,6 +128,9 @@ node bin/backup.js --restore <backup-dir> --verify-integrity   # optional
 | Attachments | Filesystem `var-pryv/users/{c}/{b}/{a}/{userId}/attachments/` | Binary files copied as-is |
 | Audit | SQLite `audit-*.sqlite` per user | If present |
 | Platform data | SQLite `platform-wide.db` | Key-value pairs |
+| Register: user profiles | Redis `{username}:users` hash | Username, email, language, registration time |
+| Register: server mappings | Redis `{username}:server` | Username → core FQDN (enterprise multi-core) |
+| Register: email indexes | Redis `{email}:email` | Email → username reverse lookup |
 | Config | `api.yml` | Converted to v2 format |
 
 ## What Does NOT Migrate

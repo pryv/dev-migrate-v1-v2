@@ -36,7 +36,11 @@ ACCOUNT_ENGINE="sqlite"
 V1_CONFIG=""
 SKIP_EXPORT=false
 SKIP_CONVERT=false
+SKIP_REGISTER=false
 COMPRESS="true"
+REDIS_HOST=""
+REDIS_PORT=""
+REDIS_PASSWORD=""
 
 usage() {
   head -25 "$0" | grep '^#' | sed 's/^# \?//'
@@ -65,7 +69,11 @@ while [ $# -gt 0 ]; do
     --v1-config)    V1_CONFIG="$2"; shift 2 ;;
     --skip-export)  SKIP_EXPORT=true; shift ;;
     --skip-convert) SKIP_CONVERT=true; shift ;;
+    --skip-register) SKIP_REGISTER=true; shift ;;
     --no-compress)  COMPRESS="false"; shift ;;
+    --redis-host)   REDIS_HOST="$2"; shift 2 ;;
+    --redis-port)   REDIS_PORT="$2"; shift 2 ;;
+    --redis-password) REDIS_PASSWORD="$2"; shift 2 ;;
     --help|-h)      usage ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -221,6 +229,52 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Step 3: Export service-register (Redis)
+# ---------------------------------------------------------------------------
+if [ "$SKIP_REGISTER" = false ]; then
+  # Auto-detect Redis
+  if [ -z "$REDIS_HOST" ]; then
+    REDIS_HOST="127.0.0.1"
+  fi
+  if [ -z "$REDIS_PORT" ]; then
+    echo ""
+    echo ">> Auto-detecting Redis port from Docker..."
+    REDIS_CONTAINER=$(docker ps --filter "name=redis" --filter "status=running" --format '{{.Names}}' | head -1)
+    if [ -n "$REDIS_CONTAINER" ]; then
+      REDIS_PORT=$(docker port "$REDIS_CONTAINER" 6379 2>/dev/null | head -1 | sed 's/.*://')
+      if [ -n "$REDIS_PORT" ]; then
+        echo "   Found container: $REDIS_CONTAINER -> port $REDIS_PORT"
+      fi
+    fi
+    if [ -z "$REDIS_PORT" ]; then
+      echo "   Could not auto-detect Redis port. Using default 6379."
+      REDIS_PORT="6379"
+    fi
+  fi
+
+  echo ""
+  echo "============================================"
+  echo "  Step 3: Export service-register (Redis)"
+  echo "============================================"
+  echo ""
+
+  REGISTER_ARGS="$BACKUP_DIR --redis-host $REDIS_HOST --redis-port $REDIS_PORT"
+  if [ -n "$REDIS_PASSWORD" ]; then
+    REGISTER_ARGS="$REGISTER_ARGS --redis-password $REDIS_PASSWORD"
+  fi
+  if [ "$COMPRESS" = "false" ]; then
+    REGISTER_ARGS="$REGISTER_ARGS --no-compress"
+  fi
+
+  node "$SCRIPT_DIR/export-register.js" $REGISTER_ARGS || {
+    echo "  WARNING: Register export failed. Continuing without register data."
+  }
+else
+  echo ""
+  echo ">> Skipping register export (--skip-register)"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
@@ -235,6 +289,14 @@ if [ -d "$BACKUP_DIR" ] && [ -f "$BACKUP_DIR/manifest.json" ]; then
   echo "  Backup: $BACKUP_DIR"
   echo "    Users exported: $USER_COUNT"
   echo "    Format: Plan 21 (JSONL + gzip)"
+fi
+if [ -d "$BACKUP_DIR/register" ] && [ -f "$BACKUP_DIR/register/manifest.json" ]; then
+  REG_USERS=$(node -e "const m=require('$BACKUP_DIR/register/manifest.json'); console.log(m.stats.users)")
+  REG_SERVERS=$(node -e "const m=require('$BACKUP_DIR/register/manifest.json'); console.log(m.stats.servers)")
+  echo ""
+  echo "  Register: $BACKUP_DIR/register"
+  echo "    User profiles: $REG_USERS"
+  echo "    Server mappings: $REG_SERVERS"
 fi
 if [ -f "$OUTPUT_DIR/v2-config.yml" ]; then
   echo ""
