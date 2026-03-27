@@ -1,0 +1,13 @@
+{
+  "name": "pryv-migrate-v1-v2",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Migration toolkit: export v1.x Pryv.io data into v2 backup format",
+  "license": "BSD-3-Clause",
+  "author": "Pryv <info@pryv.com> (https://pryv.com)",
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "mongodb": "^6.0.0",
+    "yaml": "^2.3.0"
+  }
+}
