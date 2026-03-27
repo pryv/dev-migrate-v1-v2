@@ -31,18 +31,30 @@ const { sanitize } = require('./lib/backup/sanitize');
 // CLI
 // ---------------------------------------------------------------------------
 
+const DEFAULT_TARGET_FILE_SIZE_MB = 50;
+
 const args = process.argv.slice(2);
 if (args.length < 2) {
-  console.error('Usage: node export-v1.js <v1-config.yml> <output-dir> [--register-dir <path>]');
+  console.error('Usage: node export-v1.js <v1-config.yml> <output-dir> [options]');
+  console.error('Options:');
+  console.error('  --register-dir <path>       Path to register export for username resolution');
+  console.error('  --target-file-size <MB>     Target chunk file size in MB (default: 50)');
+  console.error('  --no-compress               Disable gzip compression');
   process.exit(1);
 }
 
 const configPath = path.resolve(args[0]);
 const outputDir = path.resolve(args[1]);
 let registerDir = null;
+let targetFileSizeMB = DEFAULT_TARGET_FILE_SIZE_MB;
+let compress = true;
 for (let i = 2; i < args.length; i++) {
   if (args[i] === '--register-dir' && args[i + 1]) {
     registerDir = path.resolve(args[++i]);
+  } else if (args[i] === '--target-file-size' && args[i + 1]) {
+    targetFileSizeMB = parseInt(args[++i], 10);
+  } else if (args[i] === '--no-compress') {
+    compress = false;
   }
 }
 
@@ -426,7 +438,10 @@ async function main () {
   console.log(`Found ${userCount} users.`);
 
   // Create backup writer
-  const writer = createFilesystemBackupWriter(outputDir, { compress: true });
+  const writer = createFilesystemBackupWriter(outputDir, {
+    compress,
+    maxChunkSize: targetFileSizeMB * 1024 * 1024
+  });
   const userManifests = [];
   let userIndex = 0;
 

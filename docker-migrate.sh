@@ -38,6 +38,7 @@ SKIP_EXPORT=false
 SKIP_CONVERT=false
 SKIP_REGISTER=false
 COMPRESS="true"
+TARGET_FILE_SIZE=""
 REDIS_HOST=""
 REDIS_PORT=""
 REDIS_PASSWORD=""
@@ -71,6 +72,7 @@ while [ $# -gt 0 ]; do
     --skip-convert) SKIP_CONVERT=true; shift ;;
     --skip-register) SKIP_REGISTER=true; shift ;;
     --no-compress)  COMPRESS="false"; shift ;;
+    --target-file-size) TARGET_FILE_SIZE="$2"; shift 2 ;;
     --redis-host)   REDIS_HOST="$2"; shift 2 ;;
     --redis-port)   REDIS_PORT="$2"; shift 2 ;;
     --redis-password) REDIS_PASSWORD="$2"; shift 2 ;;
@@ -197,7 +199,14 @@ YAML
   fi
 
   echo ""
-  node "$SCRIPT_DIR/export-v1.js" "$EXPORT_CONFIG" "$BACKUP_DIR"
+  EXPORT_ARGS="$EXPORT_CONFIG $BACKUP_DIR"
+  if [ -n "$TARGET_FILE_SIZE" ]; then
+    EXPORT_ARGS="$EXPORT_ARGS --target-file-size $TARGET_FILE_SIZE"
+  fi
+  if [ "$COMPRESS" = "false" ]; then
+    EXPORT_ARGS="$EXPORT_ARGS --no-compress"
+  fi
+  node "$SCRIPT_DIR/export-v1.js" $EXPORT_ARGS
   rm -f "$EXPORT_CONFIG"
 
   echo ""
