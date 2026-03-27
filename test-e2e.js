@@ -217,14 +217,21 @@ async function main () {
       await db.collection('events').insertMany(eventDocs);
     }
 
-    // Re-import streams
+    // Re-import streams (canonical id → MongoDB streamId)
     const streams = await readJsonlGz(path.join(userDir, 'streams.jsonl.gz'));
     if (streams.length > 0) {
-      const streamDocs = streams.map(s => ({ ...s, userId }));
+      const streamDocs = streams.map(s => {
+        const doc = { ...s, userId };
+        if (doc.id != null && doc.streamId == null) {
+          doc.streamId = doc.id;
+          delete doc.id;
+        }
+        return doc;
+      });
       await db.collection('streams').insertMany(streamDocs);
     }
 
-    // Re-import accesses
+    // Re-import accesses (canonical id → MongoDB _id)
     const accesses = await readJsonlGz(path.join(userDir, 'accesses.jsonl.gz'));
     if (accesses.length > 0) {
       const accessDocs = accesses.map(a => ({
@@ -236,10 +243,17 @@ async function main () {
       await db.collection('accesses').insertMany(accessDocs);
     }
 
-    // Re-import profile
+    // Re-import profile (canonical id → MongoDB profileId)
     const profileItems = await readJsonlGz(path.join(userDir, 'profile.jsonl.gz'));
     if (profileItems.length > 0) {
-      const profileDocs = profileItems.map(p => ({ ...p, userId }));
+      const profileDocs = profileItems.map(p => {
+        const doc = { ...p, userId };
+        if (doc.id != null && doc.profileId == null) {
+          doc.profileId = doc.id;
+          delete doc.id;
+        }
+        return doc;
+      });
       await db.collection('profile').insertMany(profileDocs);
     }
 
