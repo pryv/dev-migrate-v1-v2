@@ -124,9 +124,17 @@ async function main () {
     assert(userManifest.userId === userId, 'user manifest userId matches');
 
     // Compare counts with snapshot
+    // System stream events are extracted as accountFields, so backup events < original
     const snap = snapshots[userId];
-    assert(userManifest.stats.events === snap.events.length,
-      `events count: backup=${userManifest.stats.events} original=${snap.events.length}`);
+    const systemStreamEvents = snap.events.filter(e =>
+      e.streamIds && e.streamIds.some(s =>
+        (s.startsWith(':_system:') || s.startsWith(':system:')) &&
+        s !== ':_system:active' && s !== ':_system:unique' && s !== ':_system:account'
+      )
+    );
+    const expectedRegularEvents = snap.events.length - systemStreamEvents.length;
+    assert(userManifest.stats.events === expectedRegularEvents,
+      `events count: backup=${userManifest.stats.events} expected=${expectedRegularEvents} (original=${snap.events.length} - ${systemStreamEvents.length} system stream events)`);
     assert(userManifest.stats.streams === snap.streams.length,
       `streams count: backup=${userManifest.stats.streams} original=${snap.streams.length}`);
     assert(userManifest.stats.accesses === snap.accesses.length,
@@ -135,13 +143,15 @@ async function main () {
     // Verify exported data content
     console.log('\n  Verifying data content...');
 
-    // Events: check all IDs are preserved
+    // Events: check regular event IDs are preserved (system stream events → accountFields)
     const eventsDir = path.join(userDir, 'events');
     const exportedEvents = await readAllChunked(eventsDir, 'events');
-    const originalEventIds = new Set(snap.events.map(e => e._id.toString()));
+    const regularOriginalIds = new Set(
+      snap.events.filter(e => !systemStreamEvents.includes(e)).map(e => e._id.toString())
+    );
     const exportedEventIds = new Set(exportedEvents.map(e => e.id));
-    assert(originalEventIds.size === exportedEventIds.size,
-      `event IDs: original=${originalEventIds.size} exported=${exportedEventIds.size}`);
+    assert(regularOriginalIds.size === exportedEventIds.size,
+      `event IDs: original=${regularOriginalIds.size} exported=${exportedEventIds.size}`);
     // Check no internal fields leaked
     const hasInternalFields = exportedEvents.some(e => e._id || e.userId || e.__v);
     assert(!hasInternalFields, 'no internal fields (_id, userId, __v) in exported events');
@@ -173,6 +183,18 @@ async function main () {
     const exportedHashes = accountData.passwords.map(p => p.hash).sort();
     assert(JSON.stringify(originalHashes) === JSON.stringify(exportedHashes),
       'password hashes match exactly');
+
+    // Verify accountFields extracted from system stream events
+    const exportedFields = accountData.accountFields || [];
+    assert(exportedFields.length === systemStreamEvents.length,
+      `accountFields: exported=${exportedFields.length} systemStreamEvents=${systemStreamEvents.length}`);
+    if (exportedFields.length > 0) {
+      const fieldNames = exportedFields.map(f => f.field).sort();
+      console.log(`    Account fields: ${fieldNames.join(', ')}`);
+      // All fields must have a value and time
+      const allValid = exportedFields.every(f => f.field && f.time != null);
+      assert(allValid, 'all accountFields have field name and time');
+    }
   }
 
   // =========================================================================

@@ -240,6 +240,53 @@ async function getAllUsersFallback (db) {
 }
 
 // ---------------------------------------------------------------------------
+// System stream event detection
+// ---------------------------------------------------------------------------
+
+const SYSTEM_PREFIX = ':_system:';
+const CUSTOM_PREFIX = ':system:';
+// Helper stream IDs that are NOT account fields
+const HELPER_STREAM_IDS = new Set([':_system:active', ':_system:unique', ':_system:account']);
+
+/**
+ * Extract the account field name from a system stream event.
+ * Returns null if the event is not an account field event.
+ */
+function getAccountFieldName (event) {
+  if (!event.streamIds || !Array.isArray(event.streamIds)) return null;
+  for (const sid of event.streamIds) {
+    if (HELPER_STREAM_IDS.has(sid)) continue;
+    if (sid.startsWith(SYSTEM_PREFIX)) return sid.substring(SYSTEM_PREFIX.length);
+    if (sid.startsWith(CUSTOM_PREFIX)) return sid.substring(CUSTOM_PREFIX.length);
+  }
+  return null;
+}
+
+/**
+ * Split events into regular events and account field entries.
+ * Account field events (in :_system: or :system: streams) are extracted
+ * as { field, value, time, createdBy } for the account data.
+ */
+async function splitEvents (db, userId) {
+  const regularEvents = [];
+  const accountFields = [];
+  for await (const event of readCollection(db, 'events', userId)) {
+    const fieldName = getAccountFieldName(event);
+    if (fieldName != null) {
+      accountFields.push({
+        field: fieldName,
+        value: event.content,
+        time: event.time || event.created,
+        createdBy: event.createdBy || 'system'
+      });
+    } else {
+      regularEvents.push(event);
+    }
+  }
+  return { regularEvents, accountFields };
+}
+
+// ---------------------------------------------------------------------------
 // Account data reading
 // ---------------------------------------------------------------------------
 
@@ -307,10 +354,6 @@ async function * readCollection (db, collectionName, userId) {
   for await (const doc of cursor) {
     yield sanitize(doc);
   }
-}
-
-async function * readEvents (db, userId) {
-  yield * readCollection(db, 'events', userId);
 }
 
 async function * readStreams (db, userId) {
@@ -451,10 +494,11 @@ async function main () {
 
     const userWriter = await writer.openUser(userId, username);
 
-    // Events
+    // Events — split system stream events into account fields
     process.stdout.write('  events...');
-    await userWriter.writeEvents(readEvents(db, userId));
-    console.log(' done');
+    const { regularEvents, accountFields } = await splitEvents(db, userId);
+    await userWriter.writeEvents((async function * () { for (const e of regularEvents) yield e; })());
+    console.log(` done (${regularEvents.length} events, ${accountFields.length} account fields extracted)`);
 
     // Streams
     process.stdout.write('  streams...');
@@ -476,9 +520,10 @@ async function main () {
     await userWriter.writeWebhooks(readWebhooks(db, userId));
     console.log(' done');
 
-    // Account data (passwords + key-value store)
+    // Account data (passwords + key-value store + account fields from system stream events)
     process.stdout.write('  account...');
     const accountData = await readAccountData(config, db, userId, config.userFilesPath);
+    accountData.accountFields = accountFields;
     await userWriter.writeAccountData(accountData);
     console.log(' done');
 
