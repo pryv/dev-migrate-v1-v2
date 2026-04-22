@@ -25,7 +25,19 @@ Both MongoDB and SQLite storage engines for user index / account data are suppor
 ```bash
 cd dev-migrate-v1-v2
 npm install
+
+# The exporter depends on the backup interface from open-pryv.io.
+# Create a symlink under lib/ so `./lib/backup/...` resolves. The
+# `lib/` directory is git-ignored on purpose — the link target depends
+# on how you've cloned the sibling repos.
+mkdir -p lib
+ln -sf ../../open-pryv.io/storages/interfaces/backup lib/backup
+
+# Verify
+ls lib/backup/FilesystemBackupReader.js   # must exist
 ```
+
+If you cloned `open-pryv.io` somewhere other than the sibling directory, adjust the target of the symlink accordingly.
 
 ### Export v1 Data
 
@@ -285,3 +297,21 @@ node test-docker-e2e.js
 - Very large deployments (millions of events) should monitor memory usage; the exporter uses async generators but some operations buffer in memory
 - The config converter produces a starting point — manual review is always required
 - Enterprise multi-core: each core must be exported separately
+
+## Restore-side behaviour: user→core mappings
+
+The v2 `bin/backup.js --restore` (provided by `open-pryv.io`) restores user data (events, streams, accesses, profile, webhooks, attachments, account), platform `user-indexed` / `user-unique` key-value rows, and — when the archive contains `register/servers.jsonl.gz` — `user-core/<username>` rows in PlatformDB.
+
+On a single-core destination (exactly one `available: true` core in the target cluster) every mapping lands on that core automatically. On a multi-core destination with more than one available core, the restore currently skips server-mapping restoration and logs a warning; operators can map users manually via the admin API, or via a bulk INSERT into rqlite's `keyValue` table:
+
+```bash
+# on the destination core
+for U in $(zcat /path/to/backup/register/servers.jsonl.gz | python3 -c \
+    "import json,sys; [print(json.loads(l)['username']) for l in sys.stdin if l.strip()]"); do
+  curl -s -X POST http://localhost:4001/db/execute \
+    -H "Content-Type: application/json" \
+    -d "[[\"INSERT OR REPLACE INTO keyValue (key, value) VALUES (?, ?)\", \"user-core/$U\", \"<target-core-id>\"]]"
+done
+```
+
+Then `dig @<core-ip> {username}.<dns.domain>` should return the core's IP.
