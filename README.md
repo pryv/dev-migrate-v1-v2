@@ -238,7 +238,7 @@ Run the exporter **once per core**. Each core has its own MongoDB and filesystem
 
 ## Backup Format
 
-The exporter produces a Plan 21 backup archive:
+The exporter produces a v2-compatible backup archive (the same format `bin/backup.js --restore` consumes):
 
 ```
 <output-dir>/

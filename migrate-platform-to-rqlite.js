@@ -9,10 +9,10 @@
 /**
  * Migrate platform data into rqlite.
  *
- * NOTE (Plan 25, 2026-04): This script was originally in service-core's `bin/`
- * to migrate the in-v2 platform DB from SQLite to rqlite during a single→multi-core
- * upgrade. After Plan 25, v2 always uses rqlite for the platform DB, so the in-v2
- * upgrade no longer needs migration.
+ * Historical note: this script was originally part of the v2 codebase to
+ * migrate the platform DB from SQLite to rqlite during a single→multi-core
+ * upgrade. v2 now uses rqlite for the platform DB unconditionally, so the
+ * in-v2 upgrade no longer needs migration.
  *
  * The script was moved here because the same shape of work is still needed for
  * v1.x → v2 migrations: users from a v1 base storage have to be enumerated and

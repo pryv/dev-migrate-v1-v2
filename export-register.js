@@ -28,7 +28,7 @@
  *   register/manifest.json      — summary
  *
  * Can be used standalone or as part of docker-migrate.sh.
- * The output is compatible with Plan 21 backup format conventions.
+ * The output uses the v2 backup format conventions.
  */
 
 const fs = require('fs');
