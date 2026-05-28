@@ -10,7 +10,7 @@
  * V1.x Data Exporter
  *
  * Reads directly from a v1.x Pryv.io system (MongoDB + SQLite + filesystem)
- * and writes data in Plan 21 backup format via FilesystemBackupWriter.
+ * and writes data in v2 backup format via FilesystemBackupWriter.
  *
  * Usage:
  *   node export-v1.js <path-to-v1-config.yml> <output-dir>

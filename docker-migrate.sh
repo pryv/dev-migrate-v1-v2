@@ -297,7 +297,7 @@ if [ -d "$BACKUP_DIR" ] && [ -f "$BACKUP_DIR/manifest.json" ]; then
   USER_COUNT=$(node -e "const m=require('$BACKUP_DIR/manifest.json'); console.log(m.users.length)")
   echo "  Backup: $BACKUP_DIR"
   echo "    Users exported: $USER_COUNT"
-  echo "    Format: Plan 21 (JSONL + gzip)"
+  echo "    Format: JSONL + gzip"
 fi
 if [ -d "$BACKUP_DIR/register" ] && [ -f "$BACKUP_DIR/register/manifest.json" ]; then
   REG_USERS=$(node -e "const m=require('$BACKUP_DIR/register/manifest.json'); console.log(m.stats.users)")
