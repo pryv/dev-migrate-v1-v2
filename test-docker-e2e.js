@@ -95,7 +95,7 @@ async function apiRequestRetry (method, urlPath, body, headers = {}, retries = 3
     } catch (e) {
       if (attempt < retries && (e.code === 'ECONNRESET' || e.code === 'ECONNREFUSED')) {
         console.log(`    (connection error, waiting for API restart... attempt ${attempt}/${retries})`);
-        await new Promise(r => setTimeout(r, 5000));
+        await new Promise(resolve => setTimeout(resolve, 5000));
         continue;
       }
       throw e;
@@ -338,9 +338,10 @@ dnsLess:
 
   const YAML = require('yaml');
   const v2Config = YAML.parse(fs.readFileSync(v2ConfigPath, 'utf8'));
-  assert(v2Config.storages?.engines?.mongodb?.host === 'open-pryv-mongo', 'MongoDB host preserved');
-  assert(v2Config.storages?.engines?.mongodb?.port === 27017, 'MongoDB port preserved');
-  assert(v2Config.storages?.engines?.mongodb?.name === 'pryv-node', 'MongoDB name preserved');
+  assert(v2Config.storages?.base?.engine === 'postgresql', 'v2 base engine is PostgreSQL');
+  assert(v2Config.storages?.engines?.postgresql != null, 'PostgreSQL engine block written');
+  assert(v2Config.storages?.engines?.mongodb == null, 'no MongoDB engine block');
+  assert(typeof v2Config.dnsLess?.isActive === 'boolean', 'dnsLess.isActive set explicitly');
   assert(v2Config.cluster?.apiWorkers === 2, 'cluster config added');
   assert(v2Config.http?.port === 3000, 'HTTP port preserved');
 

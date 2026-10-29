@@ -5,6 +5,9 @@
   "description": "Migration toolkit: export v1.x Pryv.io data into v2 backup format",
   "license": "BSD-3-Clause",
   "author": "Pryv <info@pryv.com> (https://pryv.com)",
+  "scripts": {
+    "test": "node --test 'test/*.test.js'"
+  },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
     "mongodb": "^6.0.0",

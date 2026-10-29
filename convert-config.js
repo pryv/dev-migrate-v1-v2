@@ -21,215 +21,201 @@ const fs = require('fs');
 const path = require('path');
 const YAML = require('yaml');
 
-const args = process.argv.slice(2);
-if (args.length < 1) {
-  console.error('Usage: node convert-config.js <v1-config.yml> [output.yml]');
-  process.exit(1);
-}
+const PLACEHOLDER = 'REPLACE ME';
 
-const configPath = path.resolve(args[0]);
-const outputPath = args[1] ? path.resolve(args[1]) : null;
+/**
+ * Build a v2 config object from a parsed v1 config.
+ * @param {object} v1 - parsed v1 config
+ * @returns {{ config: object, notes: string[] }} the v2 config and the review
+ *   notes to print in the output header
+ */
+function convert (v1) {
+  v1 = v1 || {};
+  const v2 = {};
+  const notes = [];
 
-// ---------------------------------------------------------------------------
-// Load v1 config
-// ---------------------------------------------------------------------------
-
-const raw = fs.readFileSync(configPath, 'utf8');
-const v1 = YAML.parse(raw);
-
-// ---------------------------------------------------------------------------
-// Build v2 config
-// ---------------------------------------------------------------------------
-
-const v2 = {};
-
-// dnsLess — keep as-is
-if (v1.dnsLess) {
-  v2.dnsLess = { ...v1.dnsLess };
-}
-
-// reporting
-if (v1.reporting) {
-  v2.reporting = { ...v1.reporting };
-}
-
-// http — keep port/ip, add new v2 ports
-v2.http = {
-  ip: v1.http?.ip || '127.0.0.1',
-  port: v1.http?.port || 3000,
-  hfsPort: 4000,
-  previewsPort: 3001
-};
-
-// --- Storages (v2 structure) ---
-v2.storages = {
-  base: { engine: 'mongodb' },
-  platform: { engine: 'sqlite' },
-  series: { engine: 'influxdb' },
-  file: { engine: 'filesystem' },
-  audit: { engine: 'sqlite' },
-  engines: {
-    mongodb: {
-      authUser: v1.database?.authUser || '',
-      authPassword: v1.database?.authPassword || '',
-      host: v1.database?.host || '127.0.0.1',
-      port: v1.database?.port || 27017,
-      name: v1.database?.name || 'pryv-node',
-      connectTimeoutMS: v1.database?.connectTimeoutMS || 60000,
-      socketTimeoutMS: v1.database?.socketTimeoutMS || 60000
-    },
-    sqlite: {
-      path: v1.userFiles?.path || 'REPLACE ME'
-    },
-    filesystem: {
-      attachmentsDirPath: v1.eventFiles?.attachmentsDirPath || v1.userFiles?.path || 'REPLACE ME',
-      previewsDirPath: v1.eventFiles?.previewsDirPath || 'REPLACE ME'
-    },
-    influxdb: {
-      host: v1.influxdb?.host || '127.0.0.1',
-      port: v1.influxdb?.port || 8086
-    }
+  // --- dnsLess / dns ---
+  // v2 refuses a config that sets dns.domain without an explicit
+  // dnsLess.isActive, and dnsLess.isActive defaults to true: always write it.
+  const v1Domain = v1.dns?.domain;
+  let dnsLessActive;
+  if (typeof v1.dnsLess?.isActive === 'boolean') {
+    dnsLessActive = v1.dnsLess.isActive;
+  } else if (v1.dnsLess?.publicUrl) {
+    dnsLessActive = true;
+  } else {
+    dnsLessActive = !v1Domain;
   }
-};
-
-// If v1 had SQLite events engine, note it (v2 doesn't have SQLite for base)
-if (v1.database?.engine === 'sqlite') {
-  v2._migration_notes = v2._migration_notes || [];
-  v2._migration_notes.push('v1 used SQLite for events — v2 uses MongoDB or PostgreSQL. Data was exported to backup format.');
-}
-
-// eventFiles
-if (v1.eventFiles) {
-  v2.eventFiles = {};
-  if (v1.eventFiles.previewsCacheMaxAge) v2.eventFiles.previewsCacheMaxAge = v1.eventFiles.previewsCacheMaxAge;
-  if (v1.eventFiles.previewsCacheCleanUpCronTime) v2.eventFiles.previewsCacheCleanUpCronTime = v1.eventFiles.previewsCacheCleanUpCronTime;
-}
-
-// auth — keep as-is
-if (v1.auth) {
-  v2.auth = { ...v1.auth };
-}
-
-// customExtensions
-if (v1.customExtensions) {
-  v2.customExtensions = { ...v1.customExtensions };
-}
-
-// updates
-if (v1.updates) {
-  v2.updates = { ...v1.updates };
-}
-
-// webhooks
-if (v1.webhooks) {
-  v2.webhooks = { ...v1.webhooks };
-}
-
-// versioning
-if (v1.versioning) {
-  v2.versioning = { ...v1.versioning };
-}
-
-// user-account
-if (v1['user-account']) {
-  v2['user-account'] = { ...v1['user-account'] };
-}
-
-// custom.systemStreams → same location in v2
-if (v1.custom) {
-  v2.custom = { ...v1.custom };
-}
-
-// caching
-if (v1.caching) {
-  v2.caching = { ...v1.caching };
-}
-
-// logs
-if (v1.logs) {
-  v2.logs = { ...v1.logs };
-}
-
-// uploads
-if (v1.uploads) {
-  v2.uploads = { ...v1.uploads };
-}
-
-// trace
-if (v1.trace) {
-  v2.trace = { ...v1.trace };
-}
-
-// integrity
-if (v1.integrity) {
-  v2.integrity = { ...v1.integrity };
-}
-
-// accessTracking
-if (v1.accessTracking) {
-  v2.accessTracking = { ...v1.accessTracking };
-}
-
-// --- New v2 settings (defaults) ---
-
-// Cluster config (new in v2)
-v2.cluster = {
-  apiWorkers: 2,
-  hfsWorkers: 1,
-  previewsWorker: true,
-  runMigrations: true
-};
-
-// Core identity (new in v2 — single core default)
-v2.core = {
-  id: 'single',
-  available: true
-};
-
-// Audit (new in v2)
-v2.audit = {
-  active: true,
-  storage: {
-    filter: {
-      methods: { include: ['all'], exclude: [] }
-    }
+  v2.dnsLess = { ...(v1.dnsLess || {}), isActive: dnsLessActive };
+  if (dnsLessActive && !v2.dnsLess.publicUrl) {
+    v2.dnsLess.publicUrl = PLACEHOLDER;
   }
-};
+  if (v1.dns) {
+    v2.dns = { ...v1.dns };
+  }
+  if (!dnsLessActive) {
+    notes.push('dnsLess.isActive is false: per-user subdomains need dns.domain plus an embedded DNS ' +
+      '(dns.active: true on a core) or an external DNS. Review the dns block.');
+  }
 
-// --- Strip v1-only settings ---
-// These don't exist in v2:
-// - openSource, backwardCompatibility, axonMessaging
-// We simply don't include them.
+  // reporting
+  if (v1.reporting) {
+    v2.reporting = { ...v1.reporting };
+  }
 
-// ---------------------------------------------------------------------------
-// Remove settings that are v1-only (not copied above)
-// ---------------------------------------------------------------------------
-// backwardCompatibility.systemStreams.prefix, backwardCompatibility.tags
-// axonMessaging — replaced by cluster + tcpBroker
-// openSource — removed in v2
+  // http: keep ip/port (and TLS files), add the v2 ports
+  v2.http = {
+    ip: v1.http?.ip || '127.0.0.1',
+    port: v1.http?.port || 3000,
+    hfsPort: 4000,
+    previewsPort: 3001
+  };
+  if (v1.http?.ssl) {
+    v2.http.ssl = { ...v1.http.ssl };
+  }
 
-// ---------------------------------------------------------------------------
-// Output
-// ---------------------------------------------------------------------------
+  // --- Storages (v2 structure) ---
+  // v2 has no MongoDB engine: user data goes to PostgreSQL (the v2 default;
+  // SQLite is the alternative) and is restored from the backup archive.
+  v2.storages = {
+    base: { engine: 'postgresql' },
+    platform: { engine: 'rqlite' },
+    series: { engine: 'postgresql' },
+    file: { engine: 'filesystem' },
+    audit: { engine: 'sqlite' },
+    engines: {
+      postgresql: {
+        host: '127.0.0.1',
+        port: 5432,
+        database: 'pryv-node',
+        user: 'pryv',
+        password: PLACEHOLDER
+      },
+      sqlite: {
+        // per-user data directory; event attachments live under it in v2
+        path: v1.userFiles?.path || PLACEHOLDER
+      },
+      filesystem: {
+        previewsDirPath: v1.eventFiles?.previewsDirPath || PLACEHOLDER
+      }
+    }
+  };
+  notes.push('storages.engines.postgresql: set host/port/database/user/password of the v2 PostgreSQL ' +
+    '(an empty password is accepted only with trust/peer authentication). To use SQLite instead, set ' +
+    'storages.base.engine and storages.series.engine to sqlite.');
 
-// Add header comment
-const header = `# V2 configuration — converted from v1.x config
-# Source: ${configPath}
-# Converted: ${new Date().toISOString()}
-#
-# REVIEW BEFORE USE:
-# - Verify all 'REPLACE ME' values
-# - Adjust cluster.apiWorkers / hfsWorkers for your hardware
-# - storages.engines.sqlite.path must point to the user data directory
-# - storages.engines.filesystem paths must be set
-`;
+  if (v1.database?.engine === 'sqlite') {
+    notes.push('v1 used SQLite for events; the data was exported to the backup format and is restored into the v2 base engine.');
+  }
+  if (v1.influxdb) {
+    notes.push('v1 had an InfluxDB block: v2 stores series in PostgreSQL by default (storages.series.engine). ' +
+      'Set it to influxdb and add storages.engines.influxdb to keep using InfluxDB.');
+  }
 
-const yamlStr = YAML.stringify(v2, { lineWidth: 120 });
-const output = header + '\n' + yamlStr;
+  // eventFiles
+  if (v1.eventFiles) {
+    const eventFiles = {};
+    if (v1.eventFiles.previewsCacheMaxAge) eventFiles.previewsCacheMaxAge = v1.eventFiles.previewsCacheMaxAge;
+    if (v1.eventFiles.previewsCacheCleanUpCronTime) eventFiles.previewsCacheCleanUpCronTime = v1.eventFiles.previewsCacheCleanUpCronTime;
+    if (Object.keys(eventFiles).length > 0) v2.eventFiles = eventFiles;
+  }
 
-if (outputPath) {
-  fs.writeFileSync(outputPath, output);
-  console.log('V2 config written to:', outputPath);
-} else {
-  process.stdout.write(output);
+  // service (service info, required at boot) / access — same location in v2
+  if (v1.service) {
+    v2.service = { ...v1.service };
+  }
+  if (v1.access) {
+    v2.access = { ...v1.access };
+  }
+
+  // services: same location in v2; service-register is built into v2
+  if (v1.services) {
+    const { register, ...services } = v1.services;
+    if (register) notes.push('services.register dropped: v2 serves registration itself.');
+    if (Object.keys(services).length > 0) v2.services = services;
+  }
+
+  // keys with the same location and meaning in v2: copied as-is
+  for (const key of ['auth', 'customExtensions', 'updates', 'webhooks', 'versioning', 'user-account',
+    'custom', 'caching', 'logs', 'uploads', 'trace', 'integrity', 'accessTracking']) {
+    if (v1[key]) v2[key] = { ...v1[key] };
+  }
+
+  // --- New v2 settings (defaults) ---
+
+  // Cluster config (new in v2)
+  v2.cluster = {
+    apiWorkers: 2,
+    hfsWorkers: 1,
+    previewsWorker: true
+  };
+
+  // Core identity (new in v2 — single core default)
+  v2.core = {
+    id: 'single',
+    available: true
+  };
+
+  // Audit (new in v2)
+  v2.audit = {
+    active: true,
+    storage: {
+      filter: {
+        methods: { include: ['all'], exclude: [] }
+      }
+    }
+  };
+
+  // v1-only settings are not copied: database (MongoDB), openSource,
+  // backwardCompatibility, axonMessaging (replaced by cluster + tcpBroker),
+  // eventFiles.attachmentsDirPath (attachments live under the user directory).
+
+  return { config: v2, notes };
+}
+
+/**
+ * Render the converted config as YAML with a review header.
+ */
+function render (v2, notes, sourcePath) {
+  const header = [
+    '# V2 configuration — converted from v1.x config',
+    `# Source: ${sourcePath}`,
+    `# Converted: ${new Date().toISOString()}`,
+    '#',
+    '# REVIEW BEFORE USE:',
+    `# - Verify all '${PLACEHOLDER}' values`,
+    '# - Adjust cluster.apiWorkers / hfsWorkers for your hardware',
+    '# - storages.engines.sqlite.path must point to the user data directory',
+    '# - storages.engines.filesystem.previewsDirPath must be set',
+    '# - Settings v2 requires that v1 did not have (e.g. platform.piiHmacKey,',
+    '#   auth.filesReadTokenSecret) are reported by `node bin/check-config.js <this file>`',
+    '#   run from the v2 install: it must pass before the first boot',
+    ...notes.map((n) => `# - ${n}`),
+    ''
+  ].join('\n');
+  return header + '\n' + YAML.stringify(v2, { lineWidth: 120 });
+}
+
+module.exports = { convert, render, PLACEHOLDER };
+
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  if (args.length < 1) {
+    console.error('Usage: node convert-config.js <v1-config.yml> [output.yml]');
+    process.exit(1);
+  }
+
+  const configPath = path.resolve(args[0]);
+  const outputPath = args[1] ? path.resolve(args[1]) : null;
+
+  const v1 = YAML.parse(fs.readFileSync(configPath, 'utf8'));
+  const { config, notes } = convert(v1);
+  const output = render(config, notes, configPath);
+
+  if (outputPath) {
+    fs.writeFileSync(outputPath, output);
+    console.log('V2 config written to:', outputPath);
+  } else {
+    process.stdout.write(output);
+  }
 }
