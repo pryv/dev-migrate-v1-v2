@@ -93,6 +93,16 @@ node convert-config.js <v1-config.yml> [output.yml]
 
 Produces a v2-compatible config. If output is omitted, prints to stdout. Review the output and fill in any `REPLACE ME` values before using.
 
+v2 does not use MongoDB: the converted config stores user data in PostgreSQL (the v2 default, `storages.base.engine: postgresql`, with series in PostgreSQL too) and the platform data in rqlite. Fill in `storages.engines.postgresql` (host, port, database, user, password); to run on SQLite instead, set `storages.base.engine` and `storages.series.engine` to `sqlite`. The v1 data reaches v2 through the backup archive, whatever the engine.
+
+`dnsLess.isActive` is always written explicitly (v2 refuses a `dns.domain` without it): `true` when the v1 config has `dnsLess.publicUrl` or no `dns.domain`, `false` otherwise.
+
+Then validate the result from the v2 install, which reports the settings v2 requires and v1 did not have (e.g. `platform.piiHmacKey`, `auth.filesReadTokenSecret`):
+
+```bash
+node bin/check-config.js /path/to/v2-config.yml
+```
+
 ### Docker Migration (all-in-one)
 
 For Docker-based v1.x deployments:
@@ -270,6 +280,12 @@ The exporter produces a v2-compatible backup archive (the same format `bin/backu
 All JSONL files are gzip-compressed by default (`--no-compress` for plaintext). Data is sanitized: `_id`, `userId`, `__v` fields are stripped; `_id` is promoted to `id` where appropriate.
 
 ## Testing
+
+### Unit tests (config converter)
+
+```bash
+npm test
+```
 
 ### Direct E2E test (requires MongoDB with v1/v2 data)
 
