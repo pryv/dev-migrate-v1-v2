@@ -45,8 +45,15 @@ describe('convert-config', () => {
       assert.equal(config.storages.platform.engine, 'rqlite');
     });
 
-    it('keeps the user and previews paths, drops the separate attachments path and InfluxDB', () => {
-      assert.equal(config.storages.engines.sqlite.path, '/var/pryv/users');
+    it('does not point the v2 user data directory at the v1 one, and says where the attachments go', () => {
+      assert.equal(config.storages.engines.sqlite, undefined);
+      const note = notes.find((n) => n.startsWith('storages.engines.sqlite.path'));
+      assert.ok(note, 'user data directory note present');
+      assert.ok(note.includes('/var/pryv/users'), 'note names the v1 userFiles.path');
+      assert.ok(note.includes('users/<userId>/attachments/'), 'note says the attachments come from the archive');
+    });
+
+    it('keeps the previews path, drops the separate attachments path and InfluxDB', () => {
       assert.deepEqual(config.storages.engines.filesystem, { previewsDirPath: '/var/pryv/previews' });
       assert.equal(config.storages.engines.influxdb, undefined);
       assert.ok(notes.some((n) => n.includes('InfluxDB')));
@@ -110,6 +117,8 @@ describe('convert-config', () => {
       assert.equal(v2.service.name, 'Open-Pryv.io');
       assert.equal(v2.http.port, 3000);
       assert.equal(v2.cluster.apiWorkers, 2);
+      assert.equal(v2.storages.engines.sqlite, undefined);
+      assert.ok(out.includes('# - storages.engines.sqlite.path'), 'user data directory note in the header');
     });
   });
 });

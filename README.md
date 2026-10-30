@@ -1,6 +1,6 @@
 # Pryv v1.x → v2 Migration Toolkit
 
-Exports data from a running v1.x Pryv.io system and produces a v2-compatible backup archive that can be restored into service-core v2 using `bin/backup.js --restore`.
+Exports data from a running v1.x Pryv.io system and produces a v2-compatible backup archive that can be restored into open-pryv.io (v2) using `bin/backup.js --restore`.
 
 ## Supported Source Systems
 
@@ -95,6 +95,8 @@ Produces a v2-compatible config. If output is omitted, prints to stdout. Review 
 
 v2 does not use MongoDB: the converted config stores user data in PostgreSQL (the v2 default, `storages.base.engine: postgresql`, with series in PostgreSQL too) and the platform data in rqlite. Fill in `storages.engines.postgresql` (host, port, database, user, password); to run on SQLite instead, set `storages.base.engine` and `storages.series.engine` to `sqlite`. The v1 data reaches v2 through the backup archive, whatever the engine.
 
+`storages.engines.sqlite.path` (the v2 user data directory: per-user databases and event attachments) is left out, so v2 uses its default `var-pryv/users` in its install directory; with Docker, set it to a mounted path such as `/app/data/users`. Do not point it at the v1 `userFiles.path`: the v1 attachments travel in the backup archive (`users/<userId>/attachments/`) and the restore writes them under this directory, clearing each user's files there first, so a shared directory would change the v1 data in place.
+
 `dnsLess.isActive` is always written explicitly (v2 refuses a `dns.domain` without it): `true` when the v1 config has `dnsLess.publicUrl` or no `dns.domain`, `false` otherwise.
 
 Then validate the result from the v2 install, which reports the settings v2 requires and v1 did not have (e.g. `platform.piiHmacKey`, `auth.filesReadTokenSecret`):
@@ -132,10 +134,10 @@ Auto-detects MongoDB port, Redis port, `var-pryv` path, and v1 config location. 
 
 ### Restore into v2
 
-After exporting, restore into a running v2 service-core instance:
+After exporting, restore into a running open-pryv.io (v2) instance:
 
 ```bash
-# From service-core directory:
+# From the open-pryv.io (v2) directory:
 node bin/backup.js --restore <backup-dir> --overwrite
 node bin/backup.js --restore <backup-dir> --verify-integrity   # optional
 ```
@@ -213,7 +215,7 @@ Run the exporter **once per core**. Each core has its own MongoDB and filesystem
 3. **Run the core exporter** against MongoDB + filesystem
 4. **Convert the config** from v1 to v2 format
 5. **Review the v2 config** — fill in paths, verify settings
-6. **Start a v2 service-core instance** with the new config
+6. **Start an open-pryv.io (v2) instance** with the new config
 7. **Restore** from the backup archive
 8. **Verify** data integrity (optional but recommended)
 

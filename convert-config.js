@@ -91,15 +91,24 @@ function convert (v1) {
         user: 'pryv',
         password: PLACEHOLDER
       },
-      sqlite: {
-        // per-user data directory; event attachments live under it in v2
-        path: v1.userFiles?.path || PLACEHOLDER
-      },
+      // storages.engines.sqlite.path is left out on purpose, see the note below
       filesystem: {
         previewsDirPath: v1.eventFiles?.previewsDirPath || PLACEHOLDER
       }
     }
   };
+  // The v2 user data directory (storages.engines.sqlite.path) has the same
+  // layout as the v1 userFiles.path (<base>/<c>/<b>/<a>/<userId>/, with the
+  // event attachments under it), but v2 must not share the v1 tree: the v1
+  // data reaches v2 through the backup archive, and the restore writes each
+  // user's files there after clearing them (--overwrite). Left out, v2 uses
+  // its default (var-pryv/users in the install directory).
+  notes.push('storages.engines.sqlite.path (v2 user data directory: per-user databases and event attachments) is left out, ' +
+    'so v2 uses its default var-pryv/users in the install directory; with Docker set it to a mounted path, ' +
+    'e.g. /app/data/users. Do not point it at the v1 userFiles.path' +
+    (v1.userFiles?.path ? ` (${v1.userFiles.path})` : '') +
+    ': the v1 attachments are in the backup archive (users/<userId>/attachments/) and the restore writes them ' +
+    'under this directory, clearing each user\'s files there first, so a shared tree would change the v1 data in place.');
   notes.push('storages.engines.postgresql: set host/port/database/user/password of the v2 PostgreSQL ' +
     '(an empty password is accepted only with trust/peer authentication). To use SQLite instead, set ' +
     'storages.base.engine and storages.series.engine to sqlite.');
@@ -185,7 +194,6 @@ function render (v2, notes, sourcePath) {
     '# REVIEW BEFORE USE:',
     `# - Verify all '${PLACEHOLDER}' values`,
     '# - Adjust cluster.apiWorkers / hfsWorkers for your hardware',
-    '# - storages.engines.sqlite.path must point to the user data directory',
     '# - storages.engines.filesystem.previewsDirPath must be set',
     '# - Settings v2 requires that v1 did not have (e.g. platform.piiHmacKey,',
     '#   auth.filesReadTokenSecret) are reported by `node bin/check-config.js <this file>`',
